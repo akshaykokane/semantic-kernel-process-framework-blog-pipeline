@@ -1,0 +1,101 @@
+#!meta
+
+{"kernelInfo":{"defaultKernelName":"csharp","items":[{"aliases":[],"languageName":"csharp","name":"csharp"}]}}
+
+#!csharp
+
+#r "nuget: Microsoft.SemanticKernel.Process.LocalRuntime, 1.37.0-alpha"
+#r "nuget: Microsoft.SemanticKernel.Process.Abstractions, 1.37.0-alpha"
+#r "nuget: Microsoft.SemanticKernel.Process.Core, 1.37.0-alpha"
+#r "nuget: Microsoft.SemanticKernel.Connectors.AzureOpenAI, 1.37.0"
+
+#!csharp
+
+using Microsoft.SemanticKernel.ChatCompletion;
+using Microsoft.SemanticKernel;
+using Microsoft.SemanticKernel.Process.Tools;
+
+#!csharp
+
+#pragma warning disable SKEXP0080
+
+// Step 3
+public class BlogPublisherStep: KernelProcessStep
+{
+    [KernelFunction]
+    public void PublishBlog(string blogContent)
+    {
+        Console.WriteLine("Entering Blog Publishing Step");
+
+        // write here logic to publish to blog
+        // notice, here we don't need Kernel object 
+        // as we are not doing any LLM calls
+        Console.WriteLine(blogContent);
+    }
+}
+
+// Step 2
+public class BlogGeneratorStep: KernelProcessStep
+{
+    [KernelFunction]
+    public async Task<string> GenerateBlogContent(string research, Kernel kernel)
+    {
+        Console.WriteLine("Entering Blog Generation Step");
+
+        var answer = await kernel.InvokePromptAsync($"Generate insightful blog article for the topic based on research {research}. ");
+        return answer.ToString();
+    }
+}
+
+// Step 1
+public class BlogResearchStep: KernelProcessStep
+{
+    [KernelFunction]
+    public async Task ResearchBlogTopic(string blogTopic, KernelProcessStepContext context)
+    {
+        Console.WriteLine("Entering Blog Research Step");
+
+        // Web Surfer -> surfer internet for the content
+        string research = "Microsoft seeks to empower all its customers to achieve more and Microsoft Azure is no different. With Azure, we hope to enable you to drive limitless innovation. Our self-help support offerings offer you new ways to engage with the Azure support experience and put the power of our Azure resources in your hands. Help API provides you with access to rich and powerful self-help Azure solutions that enable you to troubleshoot Azure issues from your preferred UI without the need to create a Support ticket. By using Help API, you can get access to insight diagnostics, Troubleshooters, and other powerful solutions for your Azure resource and subscription. These solutions are curated by Azure engineers that will expedite your troubleshooting experiences across Billing, Subscription Management and technical issues. This reference documentation serves as a guide for using Help API and specific reference information for each REST operation. Role Prerequisites: To use Help API you must use your AAD token. You must have access to the subscription scope. For diagnostics, you must have reader access role for the resource on which the diagnostics is executed. Solution discovery and execution steps: Discovery solution API is the initial point of entry to discover the solution metadata mapped to the subscription or resource Once the solution/diagnostics is determined based on the description field in the solution discovery response, you can execute the solution using Diagnostics or Solutions API Operation Group	Description Operations	List all the available Help API REST operations Discovery solution	Lists the relevant Azure diagnostics and Solutions using problemClassificationId AND resourceUri or resourceType Diagnostics	Create and list diagnostics for an Azure resource. Solutions	Create, update and list Azure Solutions for the selected subscription or resource. In this version we will support technical issues , billing/ subscription management issues (non-tenant) Troubleshooters 	Create and list Troubleshooters as one of the components of Solutions for the specific subscription and resource scope Legal disclosure:This API connects to Azure Services. Your use of this API and the Azure Services it connects to are governed by the agreement under which you obtained Azure Services. SeeMicrosoft Azure Legal Information | Microsoft Azure for more informationfor more information. Support in other languages and interfaces Apart from support in REST API, self help api support is available in the following interfaces and languages: Azure SDK for Java: Artifact | Documentation Azure SDK for .NET: Artifact | Documentation Azure SDK for Python: Artifact | Documentation Azure SDK for JavaScript: Artifact | Documentation Azure SDK for Go: Artifact | Documentation Azure CLI: Code | Documentation PowerShell: Code | Documentation This API connects to Azure Services. Your use of this API and the Azure Services it connects to are governed by the agreement under which you obtained the Azure Services. See Microsoft Azure Legal Information | Microsoft Azure for more information.";
+        await context.EmitEventAsync("ResearchDone", research);
+    }
+}
+
+#!csharp
+
+#pragma warning disable SKEXP0080
+
+ProcessBuilder processBuilder = new("BlogGenerationProcess");
+
+// Add the steps
+var blogGeneratorStep = processBuilder.AddStepFromType<BlogGeneratorStep>();
+var blogResearchStep = processBuilder.AddStepFromType<BlogResearchStep>();
+var blogPublisherStep = processBuilder.AddStepFromType<BlogPublisherStep>();
+
+// Orchestrate the events
+processBuilder
+    .OnInputEvent("Start")
+    .SendEventTo(new(blogResearchStep));
+
+blogResearchStep
+    .OnEvent("ResearchDone")
+    .SendEventTo(new(blogGeneratorStep, parameterName: "research"));
+
+blogGeneratorStep
+    .OnFunctionResult()
+    .SendEventTo(new(blogPublisherStep));
+
+#!csharp
+
+#pragma warning disable SKEXP0080
+
+Kernel kernel = Kernel.CreateBuilder()
+    .AddAzureOpenAIChatCompletion("GPT4ov1", "https://<>.openai.azure.com", "")
+    .Build();
+
+
+
+// Build and run the process
+KernelProcess process = processBuilder.Build();
+
+await process.StartAsync(kernel, new KernelProcessEvent { Id = "Start", Data = "Azure Help API" });
